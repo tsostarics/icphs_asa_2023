@@ -1,0 +1,21 @@
+cmdstanr doesn't play well with renv for whatever reason.
+Install instructions here: https://mc-stan.org/cmdstanr/
+
+```r
+# install.packages("remotes")
+remotes::install_github("stan-dev/cmdstanr")
+```
+
+Otherwise, you can run the following:
+
+```r
+renv::restore() # Install all packages
+library(targets)
+library(tarchetypes)
+
+tar_make() # Run analyses and render figures
+```
+
+Some notes:
+ - Writeups/models.qmd runs all models and the performance metrics used for the ASA poster
+ - Writeups/figures.qmd runs creates all the other figures used in the ASA poster and ICPhS paper

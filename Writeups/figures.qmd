@@ -1,0 +1,201 @@
+---
+title: "ICPhS Figures"
+format: 
+  html:
+    toc: false
+execute: 
+  echo: true
+  warning: false
+knitr: 
+  opts_chunk: 
+    message: false
+fig-dpi: 300
+self-contained: true
+---
+
+```{r fontsetup}
+#| eval: false
+
+# Run this if there are issues using the custom fonts
+library(extrafont)
+extrafont::font_import()
+```
+
+```{r setup}
+library(dplyr)        # Data wrangling
+library(tidyr)        # Data wrangling
+library(readr)        # Data wrangling
+library(ggplot2)      # Plotting
+library(showtext)     # For plot font
+library(contrastable) # For contrast coding
+library(ggeffects)    # For computing predictions from models for plots
+library(here)         # For managing directories
+library(brms)         # Managing brms models
+library(tidybayes)    # For pulling predictions
+library(modelr)       # For data_grid function
+library(sosprosody)   # devtools::install_github('tsostarics/sosprosody')
+library(targets)      # Make file behavior
+library(Cairo)        # Figure output device
+
+tar_read(models) # Add dependency on models.qmd
+
+source(here::here("Helpers/continuum_utils.R")) # For stimulus information
+source(here::here("Helpers/plot_helpers.R"))    # Code for making plots
+
+# For plot fonts, not strictly needed
+sysfonts::font_add_google("Roboto") # Font for plots
+
+exp1_data <- 
+  readr::read_csv(here::here("Data/exp1_data.csv")) |> 
+  cbind(experiment = 'exp1') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+exp2_data <- 
+  readr::read_csv(here::here("Data/exp2_data.csv")) |> 
+  cbind(experiment = 'exp2') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+full_data <- rbind(exp1_data, exp2_data)
+```
+
+```{r schematic-tunes}
+# Create dataframes for the stimulus information
+exp1_tunes <- readRDS(here::here("../_targets/objects/exp1_tunes"))
+exp2_tunes <- readRDS(here::here("../_targets/objects/exp2_tunes"))
+```
+
+```{r exp1-heatmaps}
+#| fig-height: 6
+#| fig-width: 6
+# 580x580 for SVG, 6inx6in for PDF
+
+# Plot the heatmaps for Figures 2 and 3
+exp1_heatmap <-
+  plot_experiment_heatmap(exp1_data, exp1_tunes,.show_type = FALSE) +
+  # Plot black line
+  geom_step(data = data.frame(x = c(.5, 2.5,
+                                    2.5, 4.5,
+                                    4.5, 5.78),
+                              y = c(1.5, 1.5,
+                                    2.5, 2.5, 
+                                    3.5, 3.5)),
+            aes(x = x, y = y),
+            inherit.aes = FALSE,
+            linewidth = 3,
+            color = 'black') +
+  # Add global pattern labels
+  annotate(x = 5.55,
+           y = 3.5,
+           hjust = 0,
+           size = 4,
+           family = "Roboto",
+           geom = 'text',
+           label = "Rising\n\nFalling") +
+  xlab("Accentual Pitch Step (Low to High)") 
+
+ggplot2::ggsave(exp1_heatmap, 
+                filename = here::here("Figures/exp1_heatmap.svg"), 
+                device = 'svg',
+                width = 6, 
+                height = 6)
+ggplot2::ggsave(exp1_heatmap, 
+                filename = here::here("Figures/exp1_heatmap.pdf"), 
+                device = cairo_pdf,
+                width = 6, 
+                height = 6)
+exp2_heatmap <-
+  plot_experiment_heatmap(exp2_data, exp2_tunes,.show_type = FALSE) +
+  geom_step(data = data.frame(x = c(.5, 2.5,
+                                    2.5, 4.5,
+                                    4.5, 5.78),
+                              y = c(1.5, 1.5,
+                                    2.5, 2.5, 
+                                    3.5, 3.5)),
+            aes(x = x, y = y),
+            inherit.aes = FALSE,
+            linewidth = 3,
+            color = 'black') +
+  # Add global pattern labels
+  annotate(x = 5.55,
+           y = 3.5,
+           hjust = 0,
+           size = 4,
+           family = "Roboto",
+           geom = 'text',
+           label = "Rising\n\nFalling") +
+  xlab("Accentual Pitch Step (Low to High)") 
+
+ggplot2::ggsave(exp2_heatmap, 
+                filename = here::here("Figures/exp2_heatmap.svg"), 
+                device = 'svg',
+                width = 6, 
+                height = 6)
+ggplot2::ggsave(exp2_heatmap, 
+                filename = here::here("Figures/exp2_heatmap.pdf"), 
+                device = cairo_pdf,
+                width = 6, 
+                height = 6)
+exp1_heatmap
+exp2_heatmap
+```
+
+
+```{r tcog-plot}
+#| fig-width: 5.8
+#| fig-height: 3.5
+
+# Plot the identification curves for Figure 4.
+
+label_annotations <- 
+  data.frame(experiment = 'exp1',
+             x = c(-2, 3.5),
+             y = c(.25, .9),
+             label = c("Rising","Falling"),
+             global_pattern = factor(c('rising','falling')))
+exp1_tcog_mdl <- readRDS(here::here("Models/exp1_tcog_reg.rds"))
+exp2_tcog_mdl <- readRDS(here::here("Models/exp2_tcog_reg.rds"))
+
+tcog_plot <-
+  plot_tcog_idx_curve_bayes(full_data,
+                            exp_models = list(exp1_tcog_mdl,
+                                              exp2_tcog_mdl),
+                            .experiments = c('exp1','exp2'),
+                            .labeller = c(exp1 = 'Exp.1 (Gradual Falls)',
+                                          exp2 = 'Exp.2 (Early Falls)'),
+                            .xrange = c(-6,6)) +
+  xlab("TCoG-F (semitones)") + 
+  geom_text(data = label_annotations, 
+            aes(label = label,
+                x = x,
+                y = y,
+                group = experiment,
+                color = global_pattern), 
+            inherit.aes = FALSE,
+            fontface = 'italic',
+            family = 'Roboto',
+            size = 5) +
+  theme(text = element_text(size = 16, family = "Roboto"))
+
+ggplot2::ggsave(tcog_plot,
+                filename = here::here("Figures/tcog_curves.pdf"),
+                device = cairo_pdf,
+                width = 580/100,
+                height = 350/100)
+
+
+ggplot2::ggsave(tcog_plot,
+                filename = here::here("Figures/tcog_curves.svg"),
+                device = 'svg',
+                width = 580/100,
+                height = 350/100)
+tcog_plot
+```
+
+```{r}
+sessionInfo()
+```
+

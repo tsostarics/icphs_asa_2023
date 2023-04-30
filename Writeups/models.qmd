@@ -1,0 +1,878 @@
+---
+title: "Models"
+format: 
+  html:
+    toc: true
+execute: 
+  echo: true
+  warning: false
+code-fold: show
+knitr: 
+  opts_chunk: 
+    message: false
+self-contained: true
+---
+
+# Setup
+
+This file fits, saves, checks, and compares the models presented in our ICPhS
+paper *Testing the Locus of Speech-Act Meaning in English Intonation*.
+The additional discussion on model comparison is discussed in our related
+Acoustical Society of America poster entitled:
+*Tonal Center of Gravity Predicts Variation in the Interpretation of Rising and Falling Intonation in American English*.
+The models from this file are used in the `figures.qmd` file, so if rendering
+these separately, this file should be run first.
+
+```{r setup}
+#| code-fold: true
+library(tidyr)        # Data wrangling
+library(dplyr)        # 
+library(readr)        # 
+library(purrr)        #
+library(brms)         # Bayesian modeling
+library(contrastable) # devtools::install_github('tsostarics/contrastable')
+library(here)         # For managing paths
+library(cmdstanr)     # Bayesian backend
+library(sosprosody)   # devtools::install_github('tsostarics/sosprosody')
+library(pROC)         # ROC Curves
+library(ggplot2)
+
+source(here::here("Helpers/model_helpers.R"))
+source(here::here("Helpers/continuum_utils.R")) # For stimulus information
+source(here::here("Helpers/plot_helpers.R"))    # Code for making plots
+
+exp1_data <- 
+  readr::read_csv(here::here("Data/exp1_data.csv")) |> 
+  cbind(experiment = 'exp1') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+exp2_data <- 
+  readr::read_csv(here::here("Data/exp2_data.csv")) |> 
+  cbind(experiment = 'exp2') |>
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+```
+
+## Priors
+
+```{r priors}
+regularizing_priors <- 
+  c(
+    prior(normal(0, 1), class = b),
+    prior(normal(0, 1), class = sd), # auto truncated to half normal
+    prior(lkj(2), class = cor),
+    prior(normal(0,2), class = Intercept)
+  )
+
+strong_priors_st <- 
+  c(
+    prior(normal(-1, .5), coef = bt_st),
+    prior(normal(0, .5), coef = pa_st),
+    prior(normal(0, 1), coef = pa_st:bt_st),
+    prior(normal(0, 1), class = sd), # auto truncated to half normal
+    prior(lkj(2), class = cor)
+  )
+
+strong_priors_tcog <- 
+  c(
+    prior(normal(-1, .5), coef = tcog_f_semitone),
+    prior(normal(-2, 2), coef = global_patternrising),
+    prior(normal(0, 2), coef = tcog_f_semitone:global_patternrising),
+    prior(normal(0, 1), class = sd),
+    prior(lkj(2), class = cor)
+  )
+
+```
+
+## Fit Experiment 1 models
+
+```{r fit-exp1-models}
+#| code-fold: true
+
+# Models are run on a 12-core CPU, adjust cores and threads as needed
+exp1_tcog_reg <- 
+  brms::brm(response_binary ~ 
+              tcog_f_semitone * global_pattern +
+              (1|utterance) +
+              (1+tcog_f_semitone|subj_id),
+            data    = exp1_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_tcog_reg.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+exp1_tcog_strong <- 
+  brms::brm(response_binary ~ 
+              tcog_f_semitone * global_pattern +
+              (1|utterance) +
+              (1+tcog_f_semitone|subj_id),
+            data    = exp1_data,
+            family  = bernoulli,
+            prior   = strong_priors_tcog,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_tcog_strong.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+exp1_scaling_reg <- 
+  brms::brm(response_binary ~ 
+              pa_st * bt_st +
+              (1|utterance) +
+              (1+pa_st*bt_st|subj_id),
+            data    = exp1_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_st_reg.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+exp1_scaling_strong <- 
+  brms::brm(response_binary ~ 
+              pa_st * bt_st +
+              (1|utterance) +
+              (1+pa_st*bt_st|subj_id),
+            data     = exp1_data,
+            family   = bernoulli,
+            prior    = strong_priors_st,
+            cores    = 4,
+            threads = threading(3),
+            file     = here::here("Models/exp1_st_strong.rds"),
+            backend  = "cmdstanr",
+            seed     = 111,
+            file_refit = "on_change")
+
+# TCoG only: Regularizing
+exp1_tcogonly_reg <- 
+  brms::brm(response_binary ~ 
+              tcog_f_semitone  +
+              (1|utterance) +
+              (1+tcog_f_semitone|subj_id),
+            data    = exp1_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_tcogonly_reg.rds"),
+            file_refit = 'on_change',
+            backend = "cmdstanr",
+            seed    = 111)
+```
+
+## Fit Experiment 2 models
+
+```{r fit-exp2-models}
+#| code-fold: true
+# Scaling model: Regularizing
+exp2_scaling_reg <- 
+  brms::brm(response_binary ~ 
+              pa_st * bt_st +
+              (1|utterance) +
+              (1+pa_st*bt_st|subj_id),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_st_reg.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+# Scaling model: Strong
+exp2_scaling_strong <-
+  brms::brm(response_binary ~ 
+              pa_st * bt_st +
+              (1|utterance) +
+              (1+pa_st*bt_st|subj_id),
+            data     = exp1_data,
+            family   = bernoulli,
+            prior    = strong_priors_st,
+            cores    = 4,
+            threads = threading(3),
+            file     = here::here("Models/exp2_st_strong.rds"),
+            backend  = "cmdstanr",
+            seed     = 111,
+            file_refit = "on_change")
+
+# TCoG+Global Pattern: Regularizing
+exp2_tcog_reg <- 
+  brms::brm(response_binary ~ 
+              tcog_f_semitone * global_pattern +
+              (1|utterance) +
+              (1+tcog_f_semitone|subj_id),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_tcog_reg.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+# TCoG+Global Pattern: Strong
+exp2_tcog_strong <- 
+  brms::brm(response_binary ~ 
+              tcog_f_semitone * global_pattern +
+              (1|utterance) +
+              (1+tcog_f_semitone|subj_id),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = strong_priors_tcog,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_tcog_strong.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+# TCoG only: Regularizing
+exp2_tcogonly_reg <- 
+  brms::brm(response_binary ~ 
+              tcog_f_semitone  +
+              (1|utterance) +
+              (1+tcog_f_semitone|subj_id),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_tcogonly_reg.rds"),
+            file_refit = 'on_change',
+            backend = "cmdstanr",
+            seed    = 111)
+```
+
+
+## Fit Slope models
+
+These models are based on the "slopes" of the pitch contours.
+It's important to note that because *all stimuli* have the same syllable
+durations, the pitch excursions across the second syllable also all have the
+same slope.
+In other words, the slope is the rise/run of pitch/time, but because time
+is held constant in all stimuli the slope only varies linearly with the
+manipulated pitch excursions.
+So technically these are modeled on the pitch excursion of the contour,
+which is directly related to the slope by some multiplicative factor.
+For expository purposes though I'll say *slope*.
+
+```{r fit-slope-models}
+#| code-fold: true
+exp1_slopeonly_reg <- 
+  brms::brm(response_binary ~ 
+              st_diff  +
+              (1|utterance) +
+              (1+st_diff|subj_id),
+            data    = exp1_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_slope_reg.rds"),
+            file_refit = 'on_change',
+            backend = "cmdstanr",
+            seed    = 111)
+
+exp2_slopeonly_reg <- 
+  brms::brm(response_binary ~ 
+              st_diff  +
+              (1|utterance) +
+              (1+st_diff|subj_id),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_slope_reg.rds"),
+            file_refit = 'on_change',
+            backend = "cmdstanr",
+            seed    = 111)
+
+exp1_slope_reg <- 
+  brms::brm(response_binary ~ 
+              st_diff  * global_pattern +
+              (1|utterance) +
+              (1+st_diff|subj_id),
+            data    = exp1_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_slopepat_reg.rds"),
+            file_refit = 'on_change',
+            backend = "cmdstanr",
+            seed    = 111)
+
+exp2_slope_reg <- 
+  brms::brm(response_binary ~ 
+              st_diff  * global_pattern +
+              (1|utterance) +
+              (1+st_diff|subj_id),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = regularizing_priors,
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_slopepat_reg.rds"),
+            file_refit = 'on_change',
+            backend = "cmdstanr",
+            seed    = 111)
+```
+
+# Model summaries
+
+```{r model-summaries}
+# Exp 1 model with accentual pitch * ending pitch
+summary(exp1_scaling_reg)
+
+# TCoG-F model for experiment 1
+summary(exp1_tcog_reg)
+
+# Exp 2 model with accentual pitch * ending pitch
+summary(exp2_scaling_reg)
+
+# TCoG-F model for experiment 2
+summary(exp2_tcog_reg)
+```
+
+
+# Model validation: PP check
+
+## Augmented & Scaling Model: Modeled data
+
+```{r pp-check-aug-scale-same}
+#| layout-ncol: 3
+#| echo: FALSE
+exp1_tcog_pp_md  <- pp_check_exp_gp(exp1_tcog_reg, "TCoG + GP (1)")
+exp1_slope_pp_md <- pp_check_exp_gp(exp1_slope_reg, "Slope + GP (1)")
+exp1_scaling_pp_md <- pp_check_exp(exp1_scaling_reg, "Scaling (1)")
+
+exp2_tcog_pp_md  <- pp_check_exp_gp(exp2_tcog_reg, "TCoG + GP (2)")
+exp2_slope_pp_md <- pp_check_exp_gp(exp2_slope_reg, "Slope + GP (2)")
+exp2_scaling_pp_md <- pp_check_exp(exp2_scaling_reg, "Scaling (2)")
+
+exp1_tcog_pp_md
+exp1_slope_pp_md
+exp1_scaling_pp_md
+exp2_tcog_pp_md
+exp2_slope_pp_md
+exp2_scaling_pp_md
+```
+
+## Augmented & Scaling model: Alternate experiment
+
+```{r pp-check-aug-scale-test}
+#| layout-ncol: 3
+#| echo: FALSE
+exp1_tcog_pp_alt  <- pp_check_gp(exp1_tcog_reg, exp2_data, "TCoG + GP (1->2)")
+exp1_slope_pp_alt <- pp_check_gp(exp1_slope_reg, exp2_data, "Slope + GP (1->2)")
+exp1_scaling_pp_alt <- pp_check_only(exp1_scaling_reg, exp2_data, "Scaling (1->2)")
+
+exp2_tcog_pp_alt  <- pp_check_gp(exp2_tcog_reg, exp1_data, "TCoG + GP (2->1)")
+exp2_slope_pp_alt <- pp_check_gp(exp2_slope_reg, exp1_data, "Slope + GP (2->1)")
+exp2_scaling_pp_alt <- pp_check_only(exp2_scaling_reg, exp1_data, "Scaling (2->1)")
+
+exp1_tcog_pp_alt
+exp1_slope_pp_alt
+exp1_scaling_pp_alt
+exp2_tcog_pp_alt
+exp2_slope_pp_alt
+exp2_scaling_pp_alt
+```
+
+## TCoG and Slope only: Modeled data
+
+```{r pp-check-tcog-slope-same}
+#| layout-ncol: 3
+#| echo: FALSE
+exp1_tcogonly_pp_md  <- pp_check_exp(exp1_tcogonly_reg, "TCoG (1)")
+exp1_slopeonly_pp_md <- pp_check_exp(exp1_slopeonly_reg, "Slope (1)")
+exp1_scaling_pp_md     <- pp_check_exp(exp1_scaling_reg, "Scaling (1)")
+
+exp2_tcogonly_pp_md  <- pp_check_exp(exp2_tcogonly_reg, "TCoG (2)")
+exp2_slopeonly_pp_md <- pp_check_exp(exp2_slopeonly_reg, "Slope (2)")
+exp2_scaling_pp_md     <- pp_check_exp(exp2_scaling_reg, "Scaling (2)")
+
+exp1_tcogonly_pp_md
+exp1_slopeonly_pp_md
+exp1_scaling_pp_md
+exp2_tcogonly_pp_md
+exp2_slopeonly_pp_md
+exp2_scaling_pp_md
+```
+
+## TCoG and Slope only: Alternate experiment
+
+```{r pp-check-tcog-slope-test}
+#| layout-ncol: 3
+#| echo: FALSE
+exp1_tcogonly_pp_alt  <- pp_check_only(exp1_tcogonly_reg, exp2_data, "TCoG(1->2)")
+exp1_slopeonly_pp_alt <- pp_check_only(exp1_tcogonly_reg, exp2_data, "Slope(1->2)")
+
+exp2_tcogonly_pp_alt  <- pp_check_only(exp2_tcogonly_reg, exp1_data, "TCoG(2->1)")
+exp2_slopeonly_pp_alt <- pp_check_only(exp2_tcogonly_reg, exp1_data, "Slope(2->1)")
+
+exp1_tcogonly_pp_alt
+exp1_slopeonly_pp_alt
+exp1_scaling_pp_alt
+exp2_tcogonly_pp_alt
+exp2_slopeonly_pp_alt
+exp2_scaling_pp_alt
+```
+
+## Posterior Predictive Heatmaps
+
+Based on the posterior predictive checks above, we can see that when trying
+to predict the data in the alternate experiment, the models all seem to be
+a little bit off.
+However, it is not clear whether the mistakes these models are making are all
+the same kind of mistakes.
+We know it underpredicts in some cases and overpredicts in others, but not if
+the "problematic" cases are the same across models.
+Below, I show a series of ***differential heatmaps*** plotting the predicted
+proportion of *telling* responses from each model *minus* the actual proportion
+from the empirical data.
+If the model is overpredicting the proportion of telling responses, this
+value will be positive; conversely, if the model underpredicts, this value
+will be negative.
+Values at or near zero mean that the model accurately generalizes to 
+that particular combination of pitch accent and boundary tone.[^plotnote]
+What we're interested is if the pattern of the darkest values in the cells
+are different or the same for the different models.
+
+[^plotnote]: In the plots, the predicted and empirical proportions are plotted
+*within each cell* such that 0% corresponds to the left edge of the cell
+and 100% corresponds to the right edge of the cell. Thus, the difference
+in proportions is encoded by both the color of the cell and the length of the
+bar between the two triangles.
+
+
+
+```{r wrangle-heatmap-data}
+#| code-fold: true
+exp1_scaling_diffs <- get_cell_differences(exp1_scaling_reg, exp2_data)
+exp1_tcog_diffs <- get_cell_differences(exp1_tcog_reg, exp2_data)
+exp1_tcogonly_diffs <- get_cell_differences(exp1_tcogonly_reg, exp2_data)
+exp1_slope_diffs <- get_cell_differences(exp1_slope_reg, exp2_data, 'st_diff')
+exp1_slopeonly_diffs <- get_cell_differences(exp1_slopeonly_reg, exp2_data, 'st_diff')
+
+exp2_scaling_diffs <- get_cell_differences(exp2_scaling_reg, exp1_data)
+exp2_tcog_diffs <- get_cell_differences(exp2_tcog_reg, exp1_data)
+exp2_tcogonly_diffs <- get_cell_differences(exp2_tcogonly_reg, exp1_data)
+exp2_slope_diffs <- get_cell_differences(exp2_slope_reg, exp1_data, 'st_diff')
+exp2_slopeonly_diffs <- get_cell_differences(exp2_slopeonly_reg, exp1_data, 'st_diff')
+
+exp1_scaling_heatmap <- plot_differential_heatmap(exp1_scaling_diffs) 
+exp1_tcog_heatmap <- plot_differential_heatmap(exp1_tcog_diffs)
+exp1_tcogonly_heatmap <- plot_differential_heatmap(exp1_tcogonly_diffs)
+exp1_slope_heatmap <- plot_differential_heatmap(exp1_slope_diffs)
+exp1_slopeonly_heatmap <- plot_differential_heatmap(exp1_slopeonly_diffs)
+
+exp2_scaling_heatmap <- plot_differential_heatmap(exp2_scaling_diffs)
+exp2_tcog_heatmap <- plot_differential_heatmap(exp2_tcog_diffs)
+exp2_tcogonly_heatmap <- plot_differential_heatmap(exp2_tcogonly_diffs)
+exp2_slope_heatmap <- plot_differential_heatmap(exp2_slope_diffs)
+exp2_slopeonly_heatmap <- plot_differential_heatmap(exp2_slopeonly_diffs)
+```
+
+### Exp1 -> Exp2
+
+In these plots, the scaling model is shown first at the top.
+Remember that we already know this model is implementationally the best
+at capturing the data in our experiments, but it is also counterintuitive.
+Following the scaling model I show the two TCoG models (TCoG only, then TCoG
+plus global pattern) and then the two slope models.
+
+```{r heatmaps-2d-exp12}
+#| layout: "[[1], [1,1], [1,1]]"
+#| echo: false
+
+thmset <- theme(legend.position = 'none', plot.title = element_text(hjust = .5))
+
+exp1_scaling_heatmap+ 
+  theme(plot.title = element_text(hjust = .5)) + ggtitle("Scaling Model")
+exp1_tcogonly_heatmap + theme(legend.position = 'none')+
+    thmset + ggtitle("TCoG Only")
+
+exp1_tcog_heatmap + theme(legend.position = 'none')+
+    thmset + ggtitle("TCoG + GP")
+
+exp1_slopeonly_heatmap + theme(legend.position = 'none')+
+    thmset + ggtitle("Slope Only")
+
+exp1_slope_heatmap + theme(legend.position = 'none')+
+    thmset + ggtitle("Slope + GP")
+
+```
+
+```{r heatmaps-3d-exp12}
+#| layout: "[[1], [1,1], [1,1]]"
+#| echo: false
+
+draw_3d_heatmap(exp1_scaling_diffs)
+draw_3d_heatmap(exp1_tcogonly_diffs)
+draw_3d_heatmap(exp1_tcog_diffs)
+draw_3d_heatmap(exp1_slopeonly_diffs)
+draw_3d_heatmap(exp1_slope_diffs)
+```
+
+From the plots, we can tell that the TCoG-only model struggles the most
+with the *smallest falls* from the highest pitch accent step (cells 5-2, 5-3).
+This makes sense, especially since 5-3 is among the steps closest to a plateau.
+It also struggles with cell 1-4, which is the second-steepest rise.
+But, when we add in the global pattern parameter, the issues with the
+falling cells are eliminated almost entirely.
+Now, cell 4-3 (also plateau-like) is the issue.
+The magnitude of the differential for cell 1-4 decreases noticeably as well.
+
+For the slope model on the other hand, it struggles with a different set of
+cells entirely (and the magnitudes of the worst offenders are higher than that
+of the TCoG model's).
+Moreover, adding the global pattern parameter doesn't really help it.
+There's a sall reduction in cell 5-4, but column 1 is essentially unchanged.
+
+
+### Exp2 -> Exp2
+
+```{r heatmaps-2d-exp22}
+#| layout: "[[1], [1,1], [1,1]]"
+#| echo: false
+exp2_scaling_heatmap + 
+  theme(plot.title = element_text(hjust = .5)) + ggtitle("Scaling Model")
+exp2_tcogonly_heatmap + 
+  thmset + ggtitle("TCoG Only")
+exp2_tcog_heatmap + theme(legend.position = 'none') +
+  thmset + ggtitle("TCoG + GP")
+exp2_slopeonly_heatmap + theme(legend.position = 'none') +
+  thmset + ggtitle("Slope Only")
+exp2_slope_heatmap + theme(legend.position = 'none') +
+  thmset + ggtitle("Slope + GP")
+```
+
+```{r heatmaps-3d-exp12}
+#| layout: "[[1], [1,1], [1,1]]"
+#| echo: false
+
+draw_3d_heatmap(exp2_scaling_diffs)
+draw_3d_heatmap(exp2_tcogonly_diffs)
+draw_3d_heatmap(exp2_tcog_diffs)
+draw_3d_heatmap(exp2_slopeonly_diffs)
+draw_3d_heatmap(exp2_slope_diffs)
+```
+
+We can see that for the TCoG and slope models, the patterns from the previous
+section remain.
+The same offenders are immediately apparent, but the magnitudes relative to
+the previous model are reduced.
+
+
+# Model Comparison: AUC
+
+Next we'll plot the ROC curves from the model of one experiment fit to the
+dataset of the other experiment.
+For example, take the tcog-only model from experiment 1 and predict the dataset
+in experiment 2.
+If, for example, TCoG is more explanatory than slope is, then this would
+carry over to the TCoG values of experiment 2, but the slope model would
+underperform.
+In each of these sets of plots, the top row is predicting Experiment 2 from
+Experiment 1, then the opposite in the second row.
+
+## TCoG-only versus Slope-Only
+
+Below we plot our two most parsimonious models using only TCoG or slope.
+*TCoG-only* on the left,  *Slope only* on the right.
+Higher AUC values indicates better classification performance.
+We know slope is going to do a decent job, but does TCoG do any better?
+
+```{r tcog-slope-only-auc}
+#| layout-ncol: 2
+
+
+exp1_tcogonly_roc <- roc_curve(exp1_tcogonly_reg, exp2_data) 
+# AUC: .8801 <-- better than slope
+
+exp1_slopeonly_roc <- roc_curve(exp1_slopeonly_reg, exp2_data) 
+# AUC: 0.856
+
+exp2_tcogonly_roc <- roc_curve(exp2_tcogonly_reg, exp1_data) 
+# AUC: 0.856 <-- better than slope
+
+exp2_slopeonly_roc <- roc_curve(exp2_slopeonly_reg, exp2_data) 
+# AUC: 0.815
+```
+
+And here are all the AUC values in a table:
+
+```{r tcog-slope-only-table}
+#| echo: false
+entable_aucs(exp1_tcogonly_roc,
+             exp1_slopeonly_roc,
+             exp2_tcogonly_roc,
+             exp2_slopeonly_roc) |> 
+  knitr::kable()
+```
+
+From this set of comparisons we can conclude that a model using only TCoG
+outperforms a model using only the slope of the pitch contour.
+
+
+## TCoG-only versus Scaling
+
+Now let's take our TCoG-only model and compare it to the scaling model.
+A priori we would expect the scaling model to do better since it has more
+parameters to work with.
+
+```{r tcog-scaling-auc}
+#| layout-ncol: 2
+
+plot(exp1_tcogonly_roc, print.auc = TRUE)
+
+exp1_scaling_roc <- roc_curve(exp1_scaling_reg, exp2_data) 
+# AUC: 0.910 <-- better than tcog alone
+
+plot(exp2_tcogonly_roc, print.auc = TRUE)
+
+exp2_scaling_roc <- roc_curve(exp2_scaling_reg, exp1_data)
+# AUC: 0.885 <-- better than tcog alone
+```
+
+```{r tcog-scaling-table}
+#| echo: false
+entable_aucs(exp1_tcogonly_roc,
+             exp1_scaling_roc,
+             exp2_tcogonly_roc,
+             exp2_scaling_roc) |> 
+  knitr::kable()
+```
+
+Unsurprisingly, the scaling model has higher AUC values.
+So far, the scaling model beats the TCoG-only and slope-only models
+
+## TCoG+Global Pattern versus Scaling
+
+Finally, we test the TCoG model when augmented with "top-down" information
+about whether the global pattern[^gp] is rising or falling. 
+This is implemented as a simple 2-level categorical variable encoding the
+global rise/fall, along with an interaction with TCoG.
+This gives the model the same number of parameters as the scaling model, which
+makes them a bit more comparable.
+
+[^gp]: I'll use GP to stand for global pattern
+
+```{r tcog-tcogonly-auc}
+#| layout-ncol: 2
+
+exp1_tcog_roc <- roc_curve(exp1_tcog_reg, exp2_data) 
+# AUC: .8801 <-- better than slope
+
+plot(exp1_scaling_roc, print.auc = TRUE)
+
+exp2_tcog_roc <- roc_curve(exp2_tcog_reg, exp1_data)
+# AUC: .8801 <-- better than slope
+
+plot(exp2_scaling_roc, print.auc = TRUE)
+```
+
+```{r tcog-tcogonly-table}
+#| echo: false
+entable_aucs(exp1_tcogonly_roc,
+             exp1_tcog_roc,
+             exp1_scaling_roc,
+             exp2_tcogonly_roc,
+             exp2_tcog_roc,
+             exp2_scaling_roc) |> 
+  knitr::kable()
+```
+
+Based just on the numbers, the scaling model ekes out a miniscule amount of
+additional classification performance compared to the augmented TCoG model.
+The magnitude is much smaller than the model comparisons we previously looked at.
+Before, the differences were on the scale of about 2-5%, but here the difference
+is barely .5%.
+So, even though the scaling model may be numerically a tiny bit better, it is 
+much more difficult to interpret (remember the Exp1 model showed a 
+counterintuitive *negative* effect).
+The augmented TCoG model is much more straightforward to interpret.
+Honestly, even without the augmentation it's still just as easy to interpret
+(and more parsimonious and bottom-up).
+
+
+## TCoG+GP versus Slope+GP
+
+In the previous section we saw how augmenting the TCoG model put its
+performance at nearly the same level as the scaling model.
+But this raises the question of whether the slope model actually *is* the proper
+way to characterize the data, but it also just needs to be similarly augmented.
+Here, I compare the TCoG+GP model with a Slope+GP model
+
+```{r tcog-slope-aucs}
+#| layout-ncol: 2
+
+plot(exp1_tcog_roc, print.auc = TRUE)
+
+exp1_slope_roc <- roc_curve(exp1_slope_reg, exp2_data) 
+# AUC: .8801 <-- better than slope
+
+plot(exp2_tcog_roc, print.auc = TRUE)
+exp2_slope_roc <- roc_curve(exp2_slope_reg, exp1_data) 
+# AUC: .8801 <-- better than slope
+
+```
+
+
+```{r tcog-slope-table}
+#| echo: false
+entable_aucs(exp1_tcogonly_roc,
+             exp1_tcog_roc,
+             exp1_slopeonly_roc,
+             exp1_slope_roc,
+             exp2_tcogonly_roc,
+             exp2_tcog_roc,
+             exp2_slopeonly_roc,
+             exp2_slope_roc) |> 
+  knitr::kable()
+
+```
+
+Based on this last set of comparisons, we can see that augmenting the slope
+model doesn't help nearly as much as augmenting the TCoG model did.
+In fact, looking at the values in the table, augmenting the slope model doesn't
+help *at all*.
+The difference between the two models is 5-7%, which is quite large compared
+to previous comparisons.
+
+## Conclusions
+
+To really summarize the comparisons I've shown above, here is a plot of the AUC
+values with 95% confidence intervals for each model.
+The results are separated by which experiment is used for the training/test
+set, and shadows depicting all data points are used to compare across the
+dataset.
+I've also plotted all the ROC curves together into one panel below it.
+
+```{r aucplot}
+#| echo: false
+auc_data <- 
+  entable_aucs(exp1_tcogonly_roc,
+               exp1_tcog_roc,
+               exp1_slopeonly_roc,
+               exp1_slope_roc,
+               exp2_tcogonly_roc,
+               exp2_tcog_roc,
+               exp2_slopeonly_roc,
+               exp2_slope_roc,
+               exp1_scaling_roc,
+               exp2_scaling_roc) |> 
+  dplyr::arrange(AUC) |>
+  dplyr::mutate(i = row_number(),
+                type = case_when(grepl("tcog", TrainModel) ~ "TCoG",
+                                 grepl("slope", TrainModel) ~ "Slope",
+                                 TRUE ~ "Scaling"),
+                exp = ifelse(grepl('exp1', TrainModel),
+                             "Exp1->Exp2",
+                             "Exp2->Exp1"),
+                auc.high = AUC + Error,
+                auc.low = AUC - Error,
+                modelname = gsub("_reg|exp[12]_", "", TrainModel, 
+                                 perl = TRUE))
+
+auc_plot <- 
+  auc_data |>
+  ggplot(aes(y = i,
+             x = AUC, 
+             xmax = auc.high, 
+             xmin= auc.low, 
+             color = type)) +
+  geom_point(data = dplyr::select(auc_data, -exp), 
+             color = 'gray70',
+             size = .5) +
+  geom_errorbarh(data = dplyr::select(auc_data, -exp), 
+                 color = 'gray70', 
+                 linewidth = .25) +
+  geom_point() +
+  geom_text(aes(label = TrainModel), 
+            position = position_nudge(x = -.01),
+            hjust = 1) +
+  geom_errorbarh() +
+  theme_bw(base_size = 16) +
+  scale_color_brewer(palette = 'Dark2') +
+  xlim(c(.7,1)) +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = 'none',
+        strip.background = element_blank()) +
+  coord_fixed(ratio = 1/40) +
+  facet_wrap(~exp)
+
+ggsave(filename = here::here("Figures/auc_plot.pdf"),
+       plot = auc_plot, 
+       width = 7,
+       height = 5)
+
+auc_plot
+```
+
+
+```{r}
+#| echo: false
+
+
+roc_df <- 
+  enframe_rocs(exp1_tcogonly_roc,
+               exp1_tcog_roc,
+               exp1_slopeonly_roc,
+               exp1_slope_roc,
+               exp2_tcogonly_roc,
+               exp2_tcog_roc,
+               exp2_slopeonly_roc,
+               exp2_slope_roc,
+               exp1_scaling_roc,
+               exp2_scaling_roc) |> 
+  left_join(dplyr::select(auc_data, -c(AUC, TestData,Error, auc.high, auc.low)), 
+            by= 'TrainModel') |> 
+  mutate(augmented = ifelse(grepl("only|scaling", modelname), "No", "Yes"))
+
+
+grouped_rocs <- 
+  roc_df |> 
+  ggplot(aes(x = 1-Specificity, y = Sensitivity, color = type, group=TrainModel, linetype = augmented)) +
+  geom_line() +
+  annotate(geom = 'line', x = c(0,1), y = c(0,1), color = 'gray50') +
+  facet_wrap(~exp) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_minimal(base_size = 16) +
+  coord_fixed()+
+  theme(panel.grid.major = element_line(linewidth = .4),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(color = "gray20", fill = NA),
+        legend.position = 'none')
+
+grouped_rocs
+```
+
+From these model comparisons  we conclude that the TCoG model is superior to the
+slope model, whether it is augmented or not. Moreover, an augmented TCoG model
+is preferable to the scaling model on the basis of its relation to linguistic
+theory (avoiding the counterintuitive pitch accent effect altogether).
+
+```{r}
+sessionInfo()
+```
+
