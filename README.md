@@ -30,4 +30,4 @@ Explanation of directories:
 
 ## Citations
 
-Thomas Sostarics, Jennifer Cole; Tonal center of gravity predicts variation in the interpretation of rising and falling intonation in American English. *J Acoust Soc Am* 1 March 2023; 153 (3_supplement): A78. [https://doi.org/10.1121/10.0018225](https://doi.org/10.1121/10.0018225)
+Sostarics, T., & Cole, J. (2023). Tonal center of gravity predicts variation in the interpretation of rising and falling intonation in American English. The Journal of the Acoustical Society of America, 153(3_supplement), A78–A78. [https://doi.org/10.1121/10.0018225](https://doi.org/10.1121/10.0018225)
