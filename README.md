@@ -21,9 +21,9 @@ tar_make() # Run analyses and render figures
 ```
 Explanation of directories:
 
-Data: Contains data from each experiment
-Figures: Figures used in the paper available as .svg and .pdf files
-Helpers: .R files containing various helper functions. Some are redundant with the sosprosody package and others aren't used in this portion of the project.
-Models: Models reported in the paper, as .rds files
-Writeups: .qmd and standalone .html files for running the models and generating the figures. Re-rendering the .qmd files will overwrite the .html files.
-renv: renv environment for the packages used in this analysis. Please refer to this page for more information on using renv.
+ - Data: Contains data from each experiment
+ - Figures: Figures used in the paper available as .svg and .pdf files
+ - Helpers: .R files containing various helper functions. Some are redundant with the sosprosody package and others aren't used in this portion of the project.
+ - Models: Models reported in the paper, as .rds files
+ - Writeups: .qmd and standalone .html files for running the models and generating the figures. Re-rendering the .qmd files will overwrite the .html files.
+ - renv: renv environment for the packages used in this analysis. Please refer to this page for more information on using renv.
