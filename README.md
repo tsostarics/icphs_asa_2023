@@ -27,3 +27,7 @@ Explanation of directories:
  - Models: Models reported in the paper, as .rds files
  - Writeups: .qmd and standalone .html files for running the models and generating the figures. Re-rendering the .qmd files will overwrite the .html files.
  - renv: renv environment for the packages used in this analysis. Please refer to this page for more information on using renv.
+
+## Citations
+
+Thomas Sostarics, Jennifer Cole; Tonal center of gravity predicts variation in the interpretation of rising and falling intonation in American English. *J Acoust Soc Am* 1 March 2023; 153 (3_supplement): A78. [https://doi.org/10.1121/10.0018225](https://doi.org/10.1121/10.0018225)
