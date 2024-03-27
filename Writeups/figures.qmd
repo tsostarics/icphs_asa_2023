@@ -64,8 +64,8 @@ full_data <- rbind(exp1_data, exp2_data)
 
 ```{r schematic-tunes}
 # Create dataframes for the stimulus information
-exp1_tunes <- readRDS(here::here("../_targets/objects/exp1_tunes"))
-exp2_tunes <- readRDS(here::here("../_targets/objects/exp2_tunes"))
+exp1_tunes <- readRDS(here::here("Data/exp1_tunes.rds"))
+exp2_tunes <- readRDS(here::here("Data/exp2_tunes.rds"))
 ```
 
 ```{r exp1-heatmaps}
